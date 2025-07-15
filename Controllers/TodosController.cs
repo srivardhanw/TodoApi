@@ -1,4 +1,6 @@
-﻿using Microsoft.AspNetCore.Mvc;
+﻿using Dapper;
+using Microsoft.AspNetCore.Http.HttpResults;
+using Microsoft.AspNetCore.Mvc;
 using TodoApi.Models;
 
 namespace TodoApi.Controllers
@@ -7,54 +9,99 @@ namespace TodoApi.Controllers
     [Route("todos")]
     public class TodosController : ControllerBase
     {
-        private static List<TodoItem> todos = new List<TodoItem>
-        {
-            new TodoItem { Id = "c9d8eab0-4d34-410c-a432-5533cbf6047d", Value = "Learn java", Status = false },
-            new TodoItem { Id = "4908861f-b013-43e4-bd3e-16e6542e4e94", Value = "Learn Python", Status = false },
-            new TodoItem { Id = "c9223a41-0fa4-453d-8df2-11cf39d9f45d", Value = "Learn C#", Status = false },
-        };
+        private readonly DapperService _dapperService;
 
-        // GET /todos
+        public TodosController(DapperService dapperService)
+        {
+            _dapperService = dapperService;
+        }
+       
         [HttpGet]
-        public ActionResult<List<TodoItem>> GetAllTodos() => todos; // Returns all todos
+        public async Task<IActionResult> GetAllTodos()
+        {
+            try {
+                var query = "SELECT * FROM Todos";
+                using (var connection = _dapperService.CreateConnection())
+                {
+                    var todos = await connection.QueryAsync<TodoItem>(query);
+                    return Ok(todos);
+                }
+            }
+            catch (Exception ex)
+            {
+                return BadRequest($"Db connection or query failed {ex.Message}");
+            }
+
+        } // Returns all todos
 
         // POST /todos
         [HttpPost]
-        public ActionResult<TodoItem> AddNewTodo([FromBody]TodoItem item) // Add new todo
+        public async Task<IActionResult> AddNewTodo([FromBody] TodoItem item) // Add new todo
         {
-            if (item == null) return BadRequest();
-            todos.Add(item);
-            return CreatedAtAction(nameof(GetAllTodos), new { id = item.Id }, item);
+            try
+            {
+                var query = "INSERT INTO Todos (Id, Value, Status) VALUES (@Id, @Value, @Status)";
+                using (var connection = _dapperService.CreateConnection())
+                {
+                    await connection.ExecuteAsync(query, new { item.Id, item.Value, item.Status});
+                    return CreatedAtAction(nameof(GetAllTodos), new { id = item.Id }, item);
+                }
+            }
+            catch (Exception ex)
+            {
+                return BadRequest($"Db connection or query failed {ex.Message}");
+            }
+            
+            
         }
 
         // PATCH /todos/{id}
         [HttpPatch("{id}")]
-        public ActionResult<TodoItem> EditTodo(string id, [FromBody] TodoItem patchItem) // Edit a todo by id (TodoItem.Value or TodoItem.Status or Both)
+        public async Task<IActionResult> EditTodo(string id, [FromBody] TodoItem patchItem) // Edit a todo by id (TodoItem.Value or TodoItem.Status or Both)
         {
-            var targetTodo = todos.FirstOrDefault(item => item.Id == id);
-            if(targetTodo == null)
+            var query = @"UPDATE Todos 
+                        SET Value = @Value, Status = @Status 
+                        WHERE Id = @Id";
+            try
             {
-                return NotFound();
+                using (var connection = _dapperService.CreateConnection())
+                {
+                    await connection.ExecuteAsync(query, new { patchItem.Value, patchItem.Status, Id = id });
+                    return Ok(new { id });
+                }
             }
-            targetTodo.Value = patchItem.Value;
-            targetTodo.Status = patchItem.Status;
-
-            return Ok(targetTodo);
+            catch(Exception ex)
+            {
+                return BadRequest($"Db connection or query failed {ex.Message}");
+            }
         }
 
         // DELETE /todo/{id}
         [HttpDelete("{id}")]
-        public ActionResult<TodoItem> DeleteTodo(string id) // Remove a todo by id
+        public async Task<IActionResult> DeleteTodo(string id) // Remove a todo by id
         {
-            if (id == null) return BadRequest();
-            var targetTodo = todos.FirstOrDefault(item => item.Id == id);
-            if(targetTodo == null)
+            var query = "DELETE FROM Todos WHERE Id = @Id";
+            try
             {
-                return NotFound();
+                using (var connection = _dapperService.CreateConnection())
+                {
+                    await connection.ExecuteAsync(query, new { Id = id });
+                    return NoContent();
+                }
             }
-            todos.Remove(targetTodo);
-            return NoContent();
+            catch (Exception ex)
+            {
+                return BadRequest($"Db connection or query failed {ex.Message}");
+            }
         }
 
     }
 }
+
+//SQL TABLE STRUCTURE 
+
+//CREATE TABLE Todos(
+//	Id		NVARCHAR(80) PRIMARY KEY,
+//    Value	NVARCHAR(150) NOT NULL,
+//    Status	BIT DEFAULT 0 NOT NULL
+//) 
